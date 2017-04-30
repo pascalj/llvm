@@ -9,6 +9,7 @@
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Transforms/IPO/PassManagerBuilder.h"
 #include "llvm/ADT/Statistic.h"
+#include "llvm/Transforms/DataInstrumentation/InstrumentationTarget.h"
 
 #ifndef DEBUG_TYPE
 #define DEBUG_TYPE "data-instrumentation"
