@@ -1,12 +1,21 @@
 #include "llvm/IR/Function.h"
 #include "llvm/IR/InstIterator.h"
 #include "llvm/IR/Instructions.h"
+#include "llvm/IR/LegacyPassManager.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/Type.h"
 #include "llvm/Pass.h"
-#include "llvm/IR/LegacyPassManager.h"
-#include "llvm/Transforms/IPO/PassManagerBuilder.h"
+#include "llvm/Support/Debug.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/Transforms/IPO/PassManagerBuilder.h"
+#include "llvm/ADT/Statistic.h"
+
+#ifndef DEBUG_TYPE
+#define DEBUG_TYPE "data-instrumentation"
+#endif
+
+STATISTIC(InstrEntryPts, "# of instrumented entry points");
+STATISTIC(InstrRetPts, "# of instrumented return instructions");
 
 using namespace llvm;
 namespace {
@@ -23,14 +32,19 @@ void InsertAfterEntry(Function &F) {
   auto I = Entry.getFirstNonPHI();
   auto foobar = FunctionToInsert(F);
   CallInst::Create(foobar, "", I);
-  errs() << *I << "\n";
+  InstrEntryPts++;
+  DEBUG(errs() << "Instrumenting after instruction" << *I << '\n');
 }
 
 // Insert the function before the (only) ret of F
 void InsertBeforeReturn(Function &F) {
   for (inst_iterator I = inst_begin(F), E = inst_end(F); I != E; ++I)
-    if(isa<ReturnInst>(*I))
-      errs() << *I << "\n";
+    if(isa<ReturnInst>(*I)) {
+      auto foobar = FunctionToInsert(F);
+      CallInst::Create(foobar, "", &*I);
+      InstrRetPts++;
+    }
+
 }
 
 // actual function pass
@@ -40,7 +54,6 @@ class DataInstrumenter : public FunctionPass {
   DataInstrumenter() : FunctionPass(ID) {}
 
   bool runOnFunction(Function &F) {
-    errs() << F.getName() << '\n';
     if (F.getName() == "main") {
       InsertBeforeReturn(F);
       InsertAfterEntry(F);
