@@ -1,10 +1,10 @@
-#include "llvm/Pass.h"
 #include "llvm/IR/Function.h"
-#include "llvm/Support/raw_ostream.h"
 #include "llvm/IR/InstIterator.h"
 #include "llvm/IR/Instructions.h"
-#include "cxxabi.h"
-#include <string>
+#include "llvm/IR/Module.h"
+#include "llvm/IR/Type.h"
+#include "llvm/Pass.h"
+#include "llvm/Support/raw_ostream.h"
 
 using namespace llvm;
 namespace {
@@ -15,9 +15,17 @@ void InsertBeforeReturn(Function &F) {
       errs() << *I << "\n";
 }
 
+
+Function* FunctionToInsert(Function &F) {
+  FunctionType *FT = FunctionType::get(Type::getVoidTy(F.getContext()), false);
+  return cast<Function>(F.getParent()->getOrInsertFunction("foobar", FT));
+}
+
 void InsertAfterEntry(Function &F) {
   BasicBlock& Entry = F.getEntryBlock();
-  auto I = Entry.getFirstInsertionPt();
+  auto I = Entry.getFirstNonPHI();
+  auto foobar = FunctionToInsert(F);
+  CallInst::Create(foobar, "", I);
   errs() << *I << "\n";
 }
 
