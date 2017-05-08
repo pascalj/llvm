@@ -4,10 +4,10 @@
 
 class InstrumentationTarget {
 public:
-  InstrumentationTarget(std::string Name) : FunctionName(Name) {};
-  std::string GetFunctionName();
+  InstrumentationTarget(const std::string Name) : Func(Name) {};
+  std::string FunctionName();
   llvm::Value* GetEntryInstrumentation(llvm::Function &F);
   llvm::Value* GetExitInstrumentation(llvm::Function &F);
 private:
-  std::string FunctionName;
+  const std::string Func;
 };

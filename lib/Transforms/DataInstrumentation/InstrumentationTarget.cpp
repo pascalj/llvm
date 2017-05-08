@@ -1,3 +1,4 @@
+#include "llvm/IR/Function.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/Type.h"
 #include "llvm/IR/Value.h"
@@ -6,8 +7,13 @@
 
 using namespace llvm;
 
+std::string InstrumentationTarget::FunctionName() {
+  return Func;
+}
+
 Value* InstrumentationTarget::GetEntryInstrumentation(Function &F) {
-  FunctionType *FT = FunctionType::get(Type::getVoidTy(F.getContext()), false);
+  auto &Ctx = F.getContext();
+  FunctionType *FT = FunctionType::get(Type::getVoidTy(Ctx), {Type::getInt64Ty(Ctx)}, false);
   return cast<Value>(F.getParent()->getOrInsertFunction("_entry_log", FT));
 }
 
