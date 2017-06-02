@@ -11,9 +11,8 @@
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Transforms/IPO/PassManagerBuilder.h"
 #include "llvm/ADT/Statistic.h"
-#include "llvm/Transforms/DataInstrumentation/InstrumentationTarget.h"
 #include <iostream>
-#include "cxxabi.h"
+#include <regex>
 
 #ifndef DEBUG_TYPE
 #define DEBUG_TYPE "data-instrumentation"
@@ -23,61 +22,39 @@ STATISTIC(InstrEntryPts, "Number of instrumented entry points");
 STATISTIC(InstrRetPts, "Number of instrumented return instructions");
 
 using namespace llvm;
+
 namespace {
-
-// Attempt to demangle for easier comparison.
-std::string demangle(const char* name) {
-    int status = -1;
-    std::unique_ptr<char, void(*)(void*)> res {
-        abi::__cxa_demangle(name, NULL, NULL, &status),
-        std::free
-    };
-    return (status == 0) ? res.get() : name;
-}
-
-// Insert the function at the beginning of F
-void InsertAfterEntry(Function &F, Value *InsFunc) {
-  BasicBlock& Entry = F.getEntryBlock();
-  auto I = Entry.getFirstInsertionPt();
-  CallInst::Create(InsFunc, ConstantInt::get(Type::getInt64Ty(F.getContext()), F.arg_size(), false), "", &*I);
-  InstrEntryPts++;
-  for(auto &arg : F.args()) {
-    DEBUG(errs() << "Arg: " << arg.getName() << '\n');
-  }
-  DEBUG(errs() << "Instrumenting after instruction" << *I << '\n');
-}
-
-// Insert the function before the (only) ret of F
-void InsertBeforeReturn(Function &F, Value *InsFunc) {
-  for (inst_iterator I = inst_begin(F), E = inst_end(F); I != E; ++I)
-    if(isa<ReturnInst>(*I)) {
-      CallInst::Create(InsFunc, "", &*I);
-      InstrRetPts++;
-      DEBUG(errs() << "Instrumenting before return instruction" << *I << '\n');
-    }
-
-}
-
 // actual function pass
 class DataInstrumenter : public FunctionPass {
  public:
   static char ID;
-  std::vector<InstrumentationTarget> Targets;
   DataInstrumenter() :
-    FunctionPass(ID),
-    Targets{
-      InstrumentationTarget("main"),
-      InstrumentationTarget("std::vector<int, std::allocator<int> >::push_back(int const&)")} {}
+    FunctionPass(ID) {}
 
   bool runOnFunction(Function &F) {
-    for (auto Target : Targets) {
-      if(Target.FunctionName() == demangle(F.getName().str().c_str())) {
-        InsertAfterEntry(F, Target.GetEntryInstrumentation(F));
-        InsertBeforeReturn(F, Target.GetExitInstrumentation(F));
+    bool modified = false;
+    if (F.hasFnAttribute("function-instrument")) {
+      modified = true;
+      auto &entry = F.getEntryBlock();
+      auto entryInstr = entry.getFirstNonPHI();
+      auto vector = F.arg_begin();
+      std::vector<Value*> params;
+      params.push_back(vector);
+      params.push_back(ConstantInt::get(Type::getInt64Ty(F.getContext()), F.arg_size(), false));
+      auto &Ctx = entryInstr->getContext();
+      FunctionType *FT = FunctionType::get(Type::getVoidTy(Ctx), {vector->getType(), Type::getInt64Ty(Ctx)}, false);
+      auto invoke = cast<Value>(entryInstr->getModule()->getOrInsertFunction("_entry_log", FT));
+      DEBUG(errs() << "Instrumenting before instruction" << entryInstr << '\n');
+      CallInst::Create(invoke, params, "", entryInstr);
+      for (inst_iterator I = inst_begin(F), E = inst_end(F); I != E; ++I) {
+        if (isa<ReturnInst>(*I)) {
+          auto returnLog = cast<Value>(entryInstr->getModule()->getOrInsertFunction("_exit_log", FT));
+          DEBUG(errs() << "Instrumenting before instruction" << &*I << '\n');
+          CallInst::Create(returnLog, params, "", &*I);
+        }
       }
     }
-
-    return true;
+    return modified;
   }
 };
 

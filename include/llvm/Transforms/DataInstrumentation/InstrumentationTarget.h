@@ -1,13 +1,15 @@
-#include <string>
+#include <regex>
+#include "llvm/IR/Instruction.h"
 #include "llvm/IR/Value.h"
-#include "llvm/IR/Function.h"
 
 class InstrumentationTarget {
 public:
-  InstrumentationTarget(const std::string Name) : Func(Name) {};
+  InstrumentationTarget(const std::regex Rgx) : Pattern(Rgx) {};
   std::string FunctionName();
-  llvm::Value* GetEntryInstrumentation(llvm::Function &F);
-  llvm::Value* GetExitInstrumentation(llvm::Function &F);
+  bool IsTargetForFunction(llvm::Function &F);
+  virtual llvm::Value* GetEntryInstrumentation(llvm::Instruction &I);
+  virtual llvm::Value* GetExitInstrumentation(llvm::Instruction &I);
+  ~InstrumentationTarget() {}
 private:
-  const std::string Func;
+  const std::regex Pattern;
 };

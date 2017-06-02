@@ -2,22 +2,32 @@
 #include "llvm/IR/Module.h"
 #include "llvm/IR/Type.h"
 #include "llvm/IR/Value.h"
+#include "llvm/Support/raw_ostream.h"
 #include "llvm/Transforms/DataInstrumentation/InstrumentationTarget.h"
 #include <string>
+#include "cxxabi.h"
 
 using namespace llvm;
 
-std::string InstrumentationTarget::FunctionName() {
-  return Func;
+std::string demangle(const char* name) {
+  int status = -1;
+  std::unique_ptr<char, void(*)(void*)> res {
+    abi::__cxa_demangle(name, NULL, NULL, &status),
+        std::free
+  };
+  return (status == 0) ? res.get() : name;
 }
 
-Value* InstrumentationTarget::GetEntryInstrumentation(Function &F) {
-  auto &Ctx = F.getContext();
-  FunctionType *FT = FunctionType::get(Type::getVoidTy(Ctx), {Type::getInt64Ty(Ctx)}, false);
-  return cast<Value>(F.getParent()->getOrInsertFunction("_entry_log", FT));
+bool InstrumentationTarget::IsTargetForFunction(Function &F) {
+  return std::regex_match(demangle(F.getName().str().c_str()), Pattern);
 }
 
-Value* InstrumentationTarget::GetExitInstrumentation(Function &F) {
-  FunctionType *FT = FunctionType::get(Type::getVoidTy(F.getContext()), false);
-  return cast<Value>(F.getParent()->getOrInsertFunction("_exit_log", FT));
-}
+class VectorInstrumentationTarget : public InstrumentationTarget {
+public:
+  Value* GetEntryInstrumentation(Instruction &I) override {
+  }
+
+  Value* GetExitInstrumentation(Instruction &I) override {
+  }
+  ~VectorInstrumentationTarget() {}
+};
