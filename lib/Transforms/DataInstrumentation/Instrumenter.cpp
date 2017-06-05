@@ -11,8 +11,6 @@
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Transforms/IPO/PassManagerBuilder.h"
 #include "llvm/ADT/Statistic.h"
-#include <iostream>
-#include <regex>
 
 #ifndef DEBUG_TYPE
 #define DEBUG_TYPE "data-instrumentation"
@@ -24,6 +22,8 @@ STATISTIC(InstrRetPts, "Number of instrumented return instructions");
 using namespace llvm;
 
 namespace {
+enum Mode { m_default = 0, read, write };
+
 // actual function pass
 class DataInstrumenter : public FunctionPass {
  public:
@@ -33,28 +33,61 @@ class DataInstrumenter : public FunctionPass {
 
   bool runOnFunction(Function &F) {
     bool modified = false;
-    if (F.hasFnAttribute("function-instrument")) {
+    if (F.hasFnAttribute("ctr-instrument")) {
       modified = true;
-      auto &entry = F.getEntryBlock();
-      auto entryInstr = entry.getFirstNonPHI();
-      auto vector = F.arg_begin();
+      auto entryInstr = F.getEntryBlock().getFirstNonPHI();
+      auto target = F.arg_begin();
+      auto mode = getMode(F.getFnAttribute("ctr-instrument"));
+
+      // build params
       std::vector<Value*> params;
-      params.push_back(vector);
-      params.push_back(ConstantInt::get(Type::getInt64Ty(F.getContext()), F.arg_size(), false));
+      params.push_back(target);
+      params.push_back(ConstantInt::get(Type::getInt8Ty(F.getContext()), 1 << mode, false));
+
+      // add accessed element
+      if (mode == Mode::read || mode == Mode::write) {
+        auto args = F.arg_begin();
+        auto accessed = ++args;
+        params.push_back(accessed);
+      }
+
       auto &Ctx = entryInstr->getContext();
-      FunctionType *FT = FunctionType::get(Type::getVoidTy(Ctx), {vector->getType(), Type::getInt64Ty(Ctx)}, false);
-      auto invoke = cast<Value>(entryInstr->getModule()->getOrInsertFunction("_entry_log", FT));
-      DEBUG(errs() << "Instrumenting before instruction" << entryInstr << '\n');
+
+      // instrument entry point
+      FunctionType *FT;
+      Value *invoke;
+      if (mode == Mode::read) {
+       FT = FunctionType::get(Type::getVoidTy(Ctx), {target->getType(), Type::getInt8Ty(Ctx), Type::getInt64Ty(Ctx)}, false);
+       invoke = cast<Value>(entryInstr->getModule()->getOrInsertFunction("_access_log", FT));
+      } else {
+       FT = FunctionType::get(Type::getVoidTy(Ctx), {target->getType(), Type::getInt8Ty(Ctx)}, false);
+       invoke = cast<Value>(entryInstr->getModule()->getOrInsertFunction("_entry_log", FT));
+      }
+      DEBUG(errs() << "Instrumenting before entry instruction" << entryInstr << '\n');
+      InstrEntryPts++;
       CallInst::Create(invoke, params, "", entryInstr);
+
+      // log before any return of a flagged method
       for (inst_iterator I = inst_begin(F), E = inst_end(F); I != E; ++I) {
         if (isa<ReturnInst>(*I)) {
           auto returnLog = cast<Value>(entryInstr->getModule()->getOrInsertFunction("_exit_log", FT));
-          DEBUG(errs() << "Instrumenting before instruction" << &*I << '\n');
+          DEBUG(errs() << "Instrumenting before return instruction" << &*I << '\n');
+          InstrRetPts++;
           CallInst::Create(returnLog, params, "", &*I);
         }
       }
     }
     return modified;
+  }
+private:
+  Mode getMode(const Attribute attr) {
+    auto val = attr.getValueAsString();
+    if (val == "read") {
+      return Mode::read;
+    } else if (val == "write") {
+      return Mode::write;
+    }
+    return Mode::m_default;
   }
 };
 
