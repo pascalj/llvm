@@ -1,6 +1,8 @@
 add_llvm_loadable_module( LLVMDataInstrumentation
-  InstrumentationTarget.cpp
   Instrumenter.cpp
+
+  DEPENDS
+  intrinsics_gen
 
   PLUGIN_TOOL
   opt
